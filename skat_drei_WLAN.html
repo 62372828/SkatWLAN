@@ -1742,7 +1742,7 @@ function netOpened(){
 }
 function newPC(){
   const pc=new RTCPeerConnection({iceServers:[]});NET.pc=pc;
-  pc.onconnectionstatechange=()=>{if(NET.pc!==pc)return;if(pc.connectionState==='failed'){if(NET.open)netLost();else netUI('fail','Die beiden Handys haben sich im WLAN nicht gefunden.')}};
+  pc.onconnectionstatechange=async()=>{if(NET.pc!==pc)return;if(pc.connectionState==='failed'){if(NET.open)netLost();else{const d=await iceDiag(pc);netUI('fail','Die beiden Handys haben sich im WLAN nicht gefunden.'+(d?`<br><small class="netstat">${d}</small>`:''))}}};
   return pc;
 }
 function waitIce(pc){return new Promise(r=>{if(pc.iceGatheringState==='complete')return r();const t=setTimeout(r,3000);
@@ -1754,8 +1754,10 @@ function packSDP(t,sdp){
   const st={actpass:'P',active:'A',passive:'S'}[get('setup')]||'P',cands=[];
   for(const l of L){if(!l.startsWith('a=candidate:'))continue;const x=l.slice(12).split(' ');
     if(x[1]!=='1'||String(x[2]).toLowerCase()!=='udp'||x[7]!=='host')continue;const s=x[4]+'~'+x[5];if(!cands.includes(s))cands.push(s)}
-  cands.sort((a,b)=>(a.includes(':')?1:0)-(b.includes(':')?1:0));
-  return ['SK1',t,get('ice-ufrag'),get('ice-pwd'),btoa(String.fromCharCode(...fp)),st].concat(cands.slice(0,4)).join('|');
+  // Heimnetz-Adressen zuerst (192.168…, 172.16–31…, 10…), mobile Daten und IPv6 zuletzt
+  const rank=c=>{const ip=c.slice(0,c.lastIndexOf('~'));return /\.local$/.test(ip)?6:ip.includes(':')?5:/^192\.168\./.test(ip)?0:/^172\.(1[6-9]|2\d|3[01])\./.test(ip)?1:/^10\./.test(ip)?2:/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip)?4:3};
+  cands.sort((a,b)=>rank(a)-rank(b));
+  return ['SK1',t,get('ice-ufrag'),get('ice-pwd'),btoa(String.fromCharCode(...fp)),st].concat(cands.slice(0,6)).join('|');
 }
 function unpackSDP(code,t){
   const p=String(code||'').trim().split('|');if(p[0]!=='SK1'||p[1]!==t||p.length<7)return null;
@@ -1792,7 +1794,8 @@ async function iceDiag(pc){
     if(!pc||!pc.getStats)return '';const st=await pc.getStats(),L={},Rm={};let pairs=0,ok=0;
     st.forEach(r=>{
       if(r.type==='local-candidate'||r.type==='remote-candidate'){const o=r.type==='local-candidate'?L:Rm;
-        const k=({host:'WLAN',srflx:'Internet',prflx:'WLAN*',relay:'Relais'}[r.candidateType]||r.candidateType)+((r.candidateType==='host'&&(!r.address||/\.local$/.test(r.address)))?' (Deckname)':'');o[k]=(o[k]||0)+1}
+        const a=r.address||'',net=/^192\.168\.\d+\./.test(a)?' '+a.split('.').slice(0,3).join('.')+'.x':'';
+        const k=({host:'WLAN',srflx:'Internet',prflx:'WLAN*',relay:'Relais'}[r.candidateType]||r.candidateType)+net+((r.candidateType==='host'&&(!r.address||/\.local$/.test(r.address)))?' (Deckname)':'');o[k]=(o[k]||0)+1}
       if(r.type==='candidate-pair'){pairs++;if(r.state==='succeeded')ok++}});
     const f=o=>Object.entries(o).map(([k,n])=>n+'× '+k).join(', ')||'keine';
     return `Diagnose – dieses Handy: ${f(L)} · anderes Handy: ${f(Rm)} · Wege geprüft: ${pairs}, erfolgreich: ${ok} · Kamera-Freigabe: ${NET.permit?'ja':'nein'}`;
@@ -1987,8 +1990,8 @@ function netUI(step,data){
     on('nCopy',()=>{code.select();try{navigator.clipboard.writeText(code.value).then(()=>toast('Code kopiert'),()=>document.execCommand('copy'))}catch(e){document.execCommand('copy')}});
     on('nShare',()=>{navigator.share({text:code.value}).catch(()=>{})})}
   const accept=c=>{netUI('wait','Verbinde mit dem zweiten Handy …');
-    hostAccept(c).then(()=>{NET.uiT=setTimeout(()=>{if(!NET.open)netUI('fail','Die beiden Handys haben sich im WLAN nicht gefunden.')},15000)}).catch(e=>netUI('fail',e.message||String(e)))};
-  const join=c=>{netPermit().then(()=>{netUI('wait','Antwort-Code wird erzeugt …');return guestAnswer(c)}).then(a=>{netUI('join2',a);NET.uiT=setTimeout(()=>{if(!NET.open)netUI('fail','Die beiden Handys haben sich im WLAN nicht gefunden.')},60000)}).catch(e=>netUI('fail',e.message||String(e)))};
+    hostAccept(c).then(()=>{NET.uiT=setTimeout(async()=>{if(!NET.open){const d=await iceDiag(NET.pc);if(!NET.open)netUI('fail','Die beiden Handys haben sich im WLAN nicht gefunden.'+(d?`<br><small class="netstat">${d}</small>`:''))}},20000)}).catch(e=>netUI('fail',e.message||String(e)))};
+  const join=c=>{netPermit().then(()=>{netUI('wait','Antwort-Code wird erzeugt …');return guestAnswer(c)}).then(a=>{netUI('join2',a);NET.uiT=setTimeout(async()=>{if(!NET.open){const d=await iceDiag(NET.pc);if(!NET.open)netUI('fail','Die beiden Handys haben sich im WLAN nicht gefunden.'+(d?`<br><small class="netstat">${d}</small>`:''))}},60000)}).catch(e=>netUI('fail',e.message||String(e)))};
   if(step==='join1'){
     const inp=box.querySelector('#nCode');
     const go=()=>{const c=inp.value.replace(/\D/g,'');if(c.length!==4){toast('Bitte 4 Ziffern eingeben');inp.focus();return}
