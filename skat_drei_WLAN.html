@@ -234,6 +234,7 @@ body.guest .hostonly{display:none!important}
 #netBox .bigcode{font-size:60px;font-weight:800;letter-spacing:.14em;color:var(--acc);font-variant-numeric:tabular-nums;margin:12px 0 6px}
 #netBox .codein{font-size:46px;width:5.6em;max-width:90%;text-align:center;letter-spacing:.3em;border-radius:14px;border:2px solid var(--acc);background:rgba(0,0,0,.3);color:var(--ink);padding:6px 4px;font-weight:800;margin:8px auto;display:block;font-variant-numeric:tabular-nums;user-select:text;-webkit-user-select:text}
 #netBox .alt{margin-top:14px;font-size:15px}
+#netBox .nethint{margin:12px 0 4px;padding:10px 12px;border:1px solid var(--acc);border-radius:12px;background:rgba(242,193,78,.1);text-align:left;font-size:15px;line-height:1.4}
 details.netalt{margin-top:10px;text-align:left;font-size:15px}
 details.netalt summary{cursor:pointer;color:var(--muted)}
 </style>
@@ -309,7 +310,7 @@ details.netalt summary{cursor:pointer;color:var(--muted)}
   <h3>Der Tisch</h3>
   <p>Claudia, Florian und Volker spielen zu dritt. Der Geber ist Hinterhand, links von ihm sitzt Vorhand, der Geber wechselt jedes Spiel. Beim Start wählst du, wer an der Tastatur sitzt – die anderen beiden spielt der Computer. Die 💡-Tipps sind eher vorsichtig.</p>
   <h3>Zu zweit mit zwei Handys 📶</h3>
-  <p>Zwei Menschen spielen an zwei Android-Handys im selben WLAN (oder über den Hotspot eines der Handys), den dritten Platz übernimmt der Computer. Am Gastgeber-Handy: 📶 → „Spiel eröffnen“, Spieler wählen, „Code erzeugen“. Am zweiten Handy: 📶 → „Beitreten“ und den 4-stelligen Code eingeben. Zum Verbinden vermittelt ein kostenloser Dienst im Internet (PeerJS) die beiden Handys, danach laufen alle Spielzüge direkt von Handy zu Handy im WLAN. Ohne Internet geht es per QR-Code: Der Gastgeber zeigt einen QR-Code, das zweite Handy scannt ihn und zeigt einen Antwort-Code, den der Gastgeber scannt. Das Spiel, die Karten und der Computerspieler laufen auf dem Gastgeber-Handy, das zweite Handy sieht nur die eigenen Karten. Reißt die Verbindung ab, spielt der Computer für den zweiten Spieler weiter; über 📶 lässt sich jederzeit neu verbinden. Beide Bildschirme sollten an bleiben.</p>
+  <p>Zwei Menschen spielen an zwei Android-Handys im selben WLAN (oder über den Hotspot eines der Handys), den dritten Platz übernimmt der Computer. Am Gastgeber-Handy: 📶 → „Spiel eröffnen“, Spieler wählen, „Code erzeugen“. Am zweiten Handy: 📶 → „Beitreten“ und den 4-stelligen Code eingeben. Zum Verbinden vermittelt ein kostenloser Dienst im Internet (PeerJS) die beiden Handys, danach laufen alle Spielzüge direkt von Handy zu Handy im WLAN. Ohne Internet geht es per QR-Code: Der Gastgeber zeigt einen QR-Code, das zweite Handy scannt ihn und zeigt einen Antwort-Code, den der Gastgeber scannt. Das Spiel, die Karten und der Computerspieler laufen auf dem Gastgeber-Handy, das zweite Handy sieht nur die eigenen Karten. Reißt die Verbindung ab, spielt der Computer für den zweiten Spieler weiter; über 📶 lässt sich jederzeit neu verbinden. Beide Bildschirme sollten an bleiben. Ab Android 17 braucht Chrome dafür auf beiden Handys die Erlaubnis „Geräte in der Nähe“ (Android-Einstellungen → Apps → Chrome → Berechtigungen), sonst finden sich die Handys im WLAN nicht.</p>
   <h3>Skatsprüche</h3>
   <p>Eingeschaltet sagen die Computerspieler in jedem Spiel zwei passende Sprüche – beim Reizen, bei der Ansage, bei Kontra, wenn der Alte fällt, beim Schmieren oder wenn ein Ass gestochen wird.</p>
   <h3>Gedächtnisfragen</h3>
@@ -921,7 +922,7 @@ function scoreRound(R){
 
 /* ================= UI ================= */
 const $=s=>document.querySelector(s);
-const NET={role:null,pc:null,dc:null,open:false,guestP:-1,pend:new Map(),seq:0,hold:0,q:0,ready:true,readyCb:null,gid:0,last:0,hb:null,shown:new Set(),soloMe:null,illegal:0,scan:null,lock:null,code:'',flow:'',uiT:0,peer:null,permit:false,sent:'',got:''};
+const NET={role:null,pc:null,dc:null,open:false,guestP:-1,pend:new Map(),seq:0,hold:0,q:0,ready:true,readyCb:null,gid:0,last:0,hb:null,shown:new Set(),soloMe:null,illegal:0,scan:null,lock:null,code:'',flow:'',uiT:0,peer:null,permit:false};
 let started=false;
 /* Skat Drei: Claudia → Florian → Volker (im Uhrzeigersinn). Wer an der Tastatur sitzt, ist wählbar. */
 const PN=['Claudia','Florian','Volker'];
@@ -1742,7 +1743,7 @@ function netOpened(){
 }
 function newPC(){
   const pc=new RTCPeerConnection({iceServers:[]});NET.pc=pc;
-  pc.onconnectionstatechange=async()=>{if(NET.pc!==pc)return;if(pc.connectionState==='failed'){if(NET.open)netLost();else{const d=await iceDiag(pc);netUI('fail','Die beiden Handys haben sich im WLAN nicht gefunden.'+(d?`<br><small class="netstat">${d}</small>`:''))}}};
+  pc.onconnectionstatechange=async()=>{if(NET.pc!==pc)return;if(pc.connectionState==='failed'){if(NET.open)netLost();else{const d=await netHint();netUI('fail','Die beiden Handys haben sich im WLAN nicht gefunden.'+d)}}};
   return pc;
 }
 function waitIce(pc){return new Promise(r=>{if(pc.iceGatheringState==='complete')return r();const t=setTimeout(r,3000);
@@ -1775,7 +1776,7 @@ function unpackSDP(code,t){
 async function hostOffer(){
   netReset();NET.role='host';const pc=newPC();netDC(pc.createDataChannel('skat',{ordered:true}));
   await pc.setLocalDescription(await pc.createOffer());await waitIce(pc);
-  const code=packSDP('o',pc.localDescription.sdp,await realAddr(pc));NET.sent=code;if(code.split('|').length<7)throw new Error('Kein WLAN gefunden – ist das Handy mit einem WLAN verbunden?');return code;
+  const code=packSDP('o',pc.localDescription.sdp,await realAddr(pc));if(code.split('|').length<7)throw new Error('Kein WLAN gefunden – ist das Handy mit einem WLAN verbunden?');return code;
 }
 /* ---------- Verbinden per 4-stelligem Code ----------
    Ein kostenloser Vermittlungsdienst (PeerJS) bringt die beiden Handys zusammen; dafür braucht es
@@ -1793,20 +1794,13 @@ async function lanPermit(){
     const st=await navigator.mediaDevices.getUserMedia({video:true,audio:false});st.getTracks().forEach(t=>t.stop());return true;
   }catch(e){return false}
 }
-async function iceDiag(pc){
-  try{
-    if(!pc||!pc.getStats)return '';const st=await pc.getStats(),L={},Rm={};let pairs=0,ok=0;
-    st.forEach(r=>{
-      if(r.type==='local-candidate'||r.type==='remote-candidate'){const o=r.type==='local-candidate'?L:Rm;
-        const a=r.address||'',net=/^192\.168\.\d+\./.test(a)?' '+a.split('.').slice(0,3).join('.')+'.x':'';
-        const k=({host:'WLAN',srflx:'Internet',prflx:'WLAN*',relay:'Relais'}[r.candidateType]||r.candidateType)+net+((r.candidateType==='host'&&(!r.address||/\.local$/.test(r.address)))?' (Deckname)':'');o[k]=(o[k]||0)+1}
-      if(r.type==='candidate-pair'){pairs++;if(r.state==='succeeded')ok++}});
-    const f=o=>Object.entries(o).map(([k,n])=>n+'× '+k).join(', ')||'keine';
-    const cc=c=>{if(!c)return '–';const a=String(c).split('|').slice(6);if(!a.length)return 'leer';
-      return a.map(x=>{const ip=x.slice(0,x.lastIndexOf('~'));return /\.local$/.test(ip)?'Deckname':ip.includes(':')?'IPv6':ip.split('.').slice(0,3).join('.')+'.x'}).join(', ')};
-    return `Diagnose – dieses Handy: ${f(L)} · anderes Handy: ${f(Rm)} · Wege geprüft: ${pairs}, erfolgreich: ${ok} · Kamera-Freigabe: ${NET.permit?'ja':'nein'}`+
-      ` · gesendet: ${cc(NET.sent)} · empfangen: ${cc(NET.got)} · Zustand: ${pc.iceConnectionState}/${pc.iceGatheringState}`;
-  }catch(e){return ''}
+/* Hinweis bei gescheiterter Verbindung: Ab Android 17 braucht Chrome die Erlaubnis „Geräte in der Nähe“ fürs Heimnetz */
+async function netHint(){
+  if(!/Android/i.test(navigator.userAgent))return '';
+  try{if(navigator.userAgentData&&navigator.userAgentData.getHighEntropyValues){
+    const v=await navigator.userAgentData.getHighEntropyValues(['platformVersion']);const m=parseInt(v.platformVersion,10);if(m>0&&m<17)return '';
+  }}catch(e){}
+  return '<div class="nethint">📱 <b>Android 17 oder neuer?</b> Dort braucht Chrome eine Erlaubnis fürs Heimnetz: Android-Einstellungen → Apps → Chrome → Berechtigungen → <b>Geräte in der Nähe</b> → Zulassen. Danach Chrome ganz schließen und neu öffnen – auf beiden Handys.</div>';
 }
 function peerOff(){if(NET.peer){const p=NET.peer;NET.peer=null;try{p.destroy()}catch(e){}}}
 function loadPeerJS(){
@@ -1838,8 +1832,8 @@ async function hostCode(){
         peer.on('error',e=>{if(!ok){clearTimeout(to);peerOff();rej(e)}});
         peer.on('connection',conn=>{if(NET.open){conn.on('open',()=>conn.close());return}
           const sh=peerShim(conn);netDC(sh);if(conn.open&&sh.onopen)sh.onopen();
-          const watch=setTimeout(async()=>{if(NET.open||NET.dc!==sh)return;const d=await iceDiag(conn.peerConnection);
-            if(!NET.open&&NET.dc===sh){netReset();netUI('fail','Das zweite Handy hat sich gemeldet, aber die beiden Handys erreichen sich im WLAN nicht.'+(d?`<br><small class="netstat">${d}</small>`:''))}},25000);
+          const watch=setTimeout(async()=>{if(NET.open||NET.dc!==sh)return;const d=await netHint();
+            if(!NET.open&&NET.dc===sh){netReset();netUI('fail','Das zweite Handy hat sich gemeldet, aber die beiden Handys erreichen sich im WLAN nicht.'+d)}},25000);
           conn.on('open',()=>clearTimeout(watch))});
       });
       return code;
@@ -1852,7 +1846,7 @@ async function guestCode(code){
   return new Promise((res,rej)=>{
     const peer=new Peer({debug:0});NET.peer=peer;let done=false;
     const fail=async m=>{if(done)return;done=true;clearTimeout(to);
-      const d=await iceDiag(NET.dc&&NET.dc._conn&&NET.dc._conn.peerConnection);peerOff();NET.dc=null;rej(new Error(m+(d?`<br><small class="netstat">${d}</small>`:'')))};
+      const d=await netHint();peerOff();NET.dc=null;rej(new Error(m+d))};
     const to=setTimeout(()=>fail('Der Code wurde gefunden, aber die beiden Handys erreichen sich im WLAN nicht.'),25000);
     peer.on('error',e=>{if(e&&e.type==='peer-unavailable')fail(`Kein offenes Spiel mit dem Code ${code}. Bitte den Code am Gastgeber-Handy prüfen.`);else if(!NET.open)fail('Der Verbindungsdienst ist nicht erreichbar – hat das Handy gerade Internet?')});
     peer.on('open',()=>{
@@ -1862,12 +1856,12 @@ async function guestCode(code){
     });
   });
 }
-async function hostAccept(code){NET.got=code;const u=unpackSDP(code,'a');if(!u)throw new Error('Das ist kein Antwort-Code vom zweiten Handy.');await NET.pc.setRemoteDescription({type:'answer',sdp:u})}
+async function hostAccept(code){const u=unpackSDP(code,'a');if(!u)throw new Error('Das ist kein Antwort-Code vom zweiten Handy.');await NET.pc.setRemoteDescription({type:'answer',sdp:u})}
 async function guestAnswer(code){
-  NET.got=code;const u=unpackSDP(code,'o');if(!u)throw new Error('Das ist kein Code vom Gastgeber-Handy.');
+  const u=unpackSDP(code,'o');if(!u)throw new Error('Das ist kein Code vom Gastgeber-Handy.');
   netReset();NET.role='guest';const pc=newPC();pc.ondatachannel=e=>netDC(e.channel);
   await pc.setRemoteDescription({type:'offer',sdp:u});await pc.setLocalDescription(await pc.createAnswer());await waitIce(pc);
-  const out=packSDP('a',pc.localDescription.sdp,await realAddr(pc));NET.sent=out;return out;
+  return packSDP('a',pc.localDescription.sdp,await realAddr(pc));
 }
 async function wakeLock(){try{if('wakeLock' in navigator&&!NET.lock){NET.lock=await navigator.wakeLock.request('screen');NET.lock.addEventListener('release',()=>{NET.lock=null})}}catch(e){}}
 function releaseLock(){try{NET.lock&&NET.lock.release()}catch(e){}NET.lock=null}
@@ -1997,8 +1991,8 @@ function netUI(step,data){
     on('nCopy',()=>{code.select();try{navigator.clipboard.writeText(code.value).then(()=>toast('Code kopiert'),()=>document.execCommand('copy'))}catch(e){document.execCommand('copy')}});
     on('nShare',()=>{navigator.share({text:code.value}).catch(()=>{})})}
   const accept=c=>{netUI('wait','Verbinde mit dem zweiten Handy …');
-    hostAccept(c).then(()=>{NET.uiT=setTimeout(async()=>{if(!NET.open){const d=await iceDiag(NET.pc);if(!NET.open)netUI('fail','Die beiden Handys haben sich im WLAN nicht gefunden.'+(d?`<br><small class="netstat">${d}</small>`:''))}},20000)}).catch(e=>netUI('fail',e.message||String(e)))};
-  const join=c=>{netPermit().then(()=>{netUI('wait','Antwort-Code wird erzeugt …');return guestAnswer(c)}).then(a=>{netUI('join2',a);NET.uiT=setTimeout(async()=>{if(!NET.open){const d=await iceDiag(NET.pc);if(!NET.open)netUI('fail','Die beiden Handys haben sich im WLAN nicht gefunden.'+(d?`<br><small class="netstat">${d}</small>`:''))}},30000)}).catch(e=>netUI('fail',e.message||String(e)))};
+    hostAccept(c).then(()=>{NET.uiT=setTimeout(async()=>{if(!NET.open){const d=await netHint();if(!NET.open)netUI('fail','Die beiden Handys haben sich im WLAN nicht gefunden.'+d)}},20000)}).catch(e=>netUI('fail',e.message||String(e)))};
+  const join=c=>{netPermit().then(()=>{netUI('wait','Antwort-Code wird erzeugt …');return guestAnswer(c)}).then(a=>{netUI('join2',a);NET.uiT=setTimeout(async()=>{if(!NET.open){const d=await netHint();if(!NET.open)netUI('fail','Die beiden Handys haben sich im WLAN nicht gefunden.'+d)}},45000)}).catch(e=>netUI('fail',e.message||String(e)))};
   if(step==='join1'){
     const inp=box.querySelector('#nCode');
     const go=()=>{const c=inp.value.replace(/\D/g,'');if(c.length!==4){toast('Bitte 4 Ziffern eingeben');inp.focus();return}
