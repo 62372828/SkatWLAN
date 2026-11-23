@@ -921,7 +921,7 @@ function scoreRound(R){
 
 /* ================= UI ================= */
 const $=s=>document.querySelector(s);
-const NET={role:null,pc:null,dc:null,open:false,guestP:-1,pend:new Map(),seq:0,hold:0,q:0,ready:true,readyCb:null,gid:0,last:0,hb:null,shown:new Set(),soloMe:null,illegal:0,scan:null,lock:null,code:'',flow:'',uiT:0,peer:null,permit:false};
+const NET={role:null,pc:null,dc:null,open:false,guestP:-1,pend:new Map(),seq:0,hold:0,q:0,ready:true,readyCb:null,gid:0,last:0,hb:null,shown:new Set(),soloMe:null,illegal:0,scan:null,lock:null,code:'',flow:'',uiT:0,peer:null,permit:false,sent:'',got:''};
 let started=false;
 /* Skat Drei: Claudia → Florian → Volker (im Uhrzeigersinn). Wer an der Tastatur sitzt, ist wählbar. */
 const PN=['Claudia','Florian','Volker'];
@@ -1748,12 +1748,16 @@ function newPC(){
 function waitIce(pc){return new Promise(r=>{if(pc.iceGatheringState==='complete')return r();const t=setTimeout(r,3000);
   pc.addEventListener('icegatheringstatechange',()=>{if(pc.iceGatheringState==='complete'){clearTimeout(t);r()}})})}
 /* Verbindungsdaten (SDP) auf das Nötigste kürzen, damit der QR-Code klein und gut lesbar bleibt */
-function packSDP(t,sdp){
+async function realAddr(pc){
+  const m={};try{(await pc.getStats()).forEach(r=>{if(r.type==='local-candidate'&&r.candidateType==='host'&&r.address&&!/\.local$/.test(r.address)&&String(r.protocol).toLowerCase()==='udp')m[r.port]=r.address})}catch(e){}
+  return m;
+}
+function packSDP(t,sdp,real){
   const L=sdp.split(/\r?\n/),get=k=>{const l=L.find(x=>x.startsWith('a='+k+':'));return l?l.slice(k.length+3).trim():''};
   const fp=(get('fingerprint').split(' ')[1]||'').split(':').map(h=>parseInt(h,16));
   const st={actpass:'P',active:'A',passive:'S'}[get('setup')]||'P',cands=[];
   for(const l of L){if(!l.startsWith('a=candidate:'))continue;const x=l.slice(12).split(' ');
-    if(x[1]!=='1'||String(x[2]).toLowerCase()!=='udp'||x[7]!=='host')continue;const s=x[4]+'~'+x[5];if(!cands.includes(s))cands.push(s)}
+    if(x[1]!=='1'||String(x[2]).toLowerCase()!=='udp'||x[7]!=='host')continue;let ip=x[4];if(/\.local$/.test(ip)&&real&&real[x[5]])ip=real[x[5]];const s=ip+'~'+x[5];if(!cands.includes(s))cands.push(s)}
   // Heimnetz-Adressen zuerst (192.168…, 172.16–31…, 10…), mobile Daten und IPv6 zuletzt
   const rank=c=>{const ip=c.slice(0,c.lastIndexOf('~'));return /\.local$/.test(ip)?6:ip.includes(':')?5:/^192\.168\./.test(ip)?0:/^172\.(1[6-9]|2\d|3[01])\./.test(ip)?1:/^10\./.test(ip)?2:/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip)?4:3};
   cands.sort((a,b)=>rank(a)-rank(b));
@@ -1771,7 +1775,7 @@ function unpackSDP(code,t){
 async function hostOffer(){
   netReset();NET.role='host';const pc=newPC();netDC(pc.createDataChannel('skat',{ordered:true}));
   await pc.setLocalDescription(await pc.createOffer());await waitIce(pc);
-  const code=packSDP('o',pc.localDescription.sdp);if(code.split('|').length<7)throw new Error('Kein WLAN gefunden – ist das Handy mit einem WLAN verbunden?');return code;
+  const code=packSDP('o',pc.localDescription.sdp,await realAddr(pc));NET.sent=code;if(code.split('|').length<7)throw new Error('Kein WLAN gefunden – ist das Handy mit einem WLAN verbunden?');return code;
 }
 /* ---------- Verbinden per 4-stelligem Code ----------
    Ein kostenloser Vermittlungsdienst (PeerJS) bringt die beiden Handys zusammen; dafür braucht es
@@ -1798,7 +1802,10 @@ async function iceDiag(pc){
         const k=({host:'WLAN',srflx:'Internet',prflx:'WLAN*',relay:'Relais'}[r.candidateType]||r.candidateType)+net+((r.candidateType==='host'&&(!r.address||/\.local$/.test(r.address)))?' (Deckname)':'');o[k]=(o[k]||0)+1}
       if(r.type==='candidate-pair'){pairs++;if(r.state==='succeeded')ok++}});
     const f=o=>Object.entries(o).map(([k,n])=>n+'× '+k).join(', ')||'keine';
-    return `Diagnose – dieses Handy: ${f(L)} · anderes Handy: ${f(Rm)} · Wege geprüft: ${pairs}, erfolgreich: ${ok} · Kamera-Freigabe: ${NET.permit?'ja':'nein'}`;
+    const cc=c=>{if(!c)return '–';const a=String(c).split('|').slice(6);if(!a.length)return 'leer';
+      return a.map(x=>{const ip=x.slice(0,x.lastIndexOf('~'));return /\.local$/.test(ip)?'Deckname':ip.includes(':')?'IPv6':ip.split('.').slice(0,3).join('.')+'.x'}).join(', ')};
+    return `Diagnose – dieses Handy: ${f(L)} · anderes Handy: ${f(Rm)} · Wege geprüft: ${pairs}, erfolgreich: ${ok} · Kamera-Freigabe: ${NET.permit?'ja':'nein'}`+
+      ` · gesendet: ${cc(NET.sent)} · empfangen: ${cc(NET.got)} · Zustand: ${pc.iceConnectionState}/${pc.iceGatheringState}`;
   }catch(e){return ''}
 }
 function peerOff(){if(NET.peer){const p=NET.peer;NET.peer=null;try{p.destroy()}catch(e){}}}
@@ -1855,12 +1862,12 @@ async function guestCode(code){
     });
   });
 }
-async function hostAccept(code){const u=unpackSDP(code,'a');if(!u)throw new Error('Das ist kein Antwort-Code vom zweiten Handy.');await NET.pc.setRemoteDescription({type:'answer',sdp:u})}
+async function hostAccept(code){NET.got=code;const u=unpackSDP(code,'a');if(!u)throw new Error('Das ist kein Antwort-Code vom zweiten Handy.');await NET.pc.setRemoteDescription({type:'answer',sdp:u})}
 async function guestAnswer(code){
-  const u=unpackSDP(code,'o');if(!u)throw new Error('Das ist kein Code vom Gastgeber-Handy.');
+  NET.got=code;const u=unpackSDP(code,'o');if(!u)throw new Error('Das ist kein Code vom Gastgeber-Handy.');
   netReset();NET.role='guest';const pc=newPC();pc.ondatachannel=e=>netDC(e.channel);
   await pc.setRemoteDescription({type:'offer',sdp:u});await pc.setLocalDescription(await pc.createAnswer());await waitIce(pc);
-  return packSDP('a',pc.localDescription.sdp);
+  const out=packSDP('a',pc.localDescription.sdp,await realAddr(pc));NET.sent=out;return out;
 }
 async function wakeLock(){try{if('wakeLock' in navigator&&!NET.lock){NET.lock=await navigator.wakeLock.request('screen');NET.lock.addEventListener('release',()=>{NET.lock=null})}}catch(e){}}
 function releaseLock(){try{NET.lock&&NET.lock.release()}catch(e){}NET.lock=null}
@@ -1991,7 +1998,7 @@ function netUI(step,data){
     on('nShare',()=>{navigator.share({text:code.value}).catch(()=>{})})}
   const accept=c=>{netUI('wait','Verbinde mit dem zweiten Handy …');
     hostAccept(c).then(()=>{NET.uiT=setTimeout(async()=>{if(!NET.open){const d=await iceDiag(NET.pc);if(!NET.open)netUI('fail','Die beiden Handys haben sich im WLAN nicht gefunden.'+(d?`<br><small class="netstat">${d}</small>`:''))}},20000)}).catch(e=>netUI('fail',e.message||String(e)))};
-  const join=c=>{netPermit().then(()=>{netUI('wait','Antwort-Code wird erzeugt …');return guestAnswer(c)}).then(a=>{netUI('join2',a);NET.uiT=setTimeout(async()=>{if(!NET.open){const d=await iceDiag(NET.pc);if(!NET.open)netUI('fail','Die beiden Handys haben sich im WLAN nicht gefunden.'+(d?`<br><small class="netstat">${d}</small>`:''))}},60000)}).catch(e=>netUI('fail',e.message||String(e)))};
+  const join=c=>{netPermit().then(()=>{netUI('wait','Antwort-Code wird erzeugt …');return guestAnswer(c)}).then(a=>{netUI('join2',a);NET.uiT=setTimeout(async()=>{if(!NET.open){const d=await iceDiag(NET.pc);if(!NET.open)netUI('fail','Die beiden Handys haben sich im WLAN nicht gefunden.'+(d?`<br><small class="netstat">${d}</small>`:''))}},30000)}).catch(e=>netUI('fail',e.message||String(e)))};
   if(step==='join1'){
     const inp=box.querySelector('#nCode');
     const go=()=>{const c=inp.value.replace(/\D/g,'');if(c.length!==4){toast('Bitte 4 Ziffern eingeben');inp.focus();return}
